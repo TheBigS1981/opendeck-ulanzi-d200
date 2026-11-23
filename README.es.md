@@ -378,7 +378,11 @@ celda se deja fuera del paquete para que no parpadee en cada actualización.
 ruletas llegan como reports HID de entrada. El hilo HID las espera con una
 lectura bloqueante que expira cada 100 ms, así que un deck en reposo apenas
 consume CPU. Se reenvían a OpenDeck como
-`keyDown`/`keyUp` y `encoderChange`/`encoderDown`/`encoderUp`.
+`keyDown`/`keyUp` y `encoderChange`/`encoderDown`/`encoderUp`. Una segunda
+pulsación de la misma tecla en menos de 0,8 s se descarta, con su liberación,
+para que una tecla que cambia de página pulsada dos veces no dispare también la
+tecla que ocupa su sitio en la página nueva (`D200X_REPRESS_GUARD` fija el
+tiempo, `0` lo desactiva).
 
 **Señal de vida.** El firmware vuelve a su logo de arranque si el host pasa
 menos de un minuto sin enviar nada. Siempre que el plugin lleva 5 s sin

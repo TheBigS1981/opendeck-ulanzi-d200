@@ -321,6 +321,9 @@ FLUSH_DEBOUNCE = 0.35    # coalesce a burst of setImage events into one bundle
 # 0.5 s held for 2.5 min of 1- to 4-key bundles (~125 KiB) back to back without a
 # single firmware reset once bundles carry only the changed cells.
 MIN_BUNDLE_INTERVAL = float(os.environ.get("D200X_MIN_INTERVAL", "0.5"))
+# A second press of the same key within this many seconds is ignored (see
+# _on_hid_input); D200X_REPRESS_GUARD=0 turns that off.
+REPRESS_GUARD = float(os.environ.get("D200X_REPRESS_GUARD", "0.8"))
 CLOCK_INTERVAL = 2.0     # how often the CPU/RAM/GPU gauges are refreshed
 GPU_INTERVAL = 5.0       # GPU utilisation is the expensive one to sample
 RECONNECT_GRACE = 30.0   # tolerate this long of HID absence before deregistering
@@ -804,6 +807,8 @@ class D200XPlugin:
         self._background: Optional[bytes] = None    # wide-cell picture under the clock
         self._overlay: Optional[bytes] = None       # OVERLAY_FILE, rendered, while shown
         self._overlay_mtime = 0.0
+        self._last_press: Dict[int, float] = {}     # key -> monotonic time of its last press
+        self._swallowed: set = set()                # keys whose release must be dropped too
 
     # -- websocket ---------------------------------------------------------- #
 
@@ -1049,6 +1054,7 @@ class D200XPlugin:
 
     def _on_hid_input(self, event: Tuple[int, bool, Optional[int]]) -> None:
         index, pressed, dial = event
+        logger.debug("Input: index %d pressed %s dial %s", index, pressed, dial)
         self._touch_activity()
 
         if dial is not None:
@@ -1065,6 +1071,20 @@ class D200XPlugin:
             else:
                 return
         elif index in SCREEN_KEYS or index in TOUCHPOINT_KEYS[:self._model.touchpoints]:
+            # A second press of the same key right after the first is dropped,
+            # release included: a key that switches pages is often tapped again
+            # because the deck shows the new page only after a moment, and that
+            # tap lands on whatever the new page has in the same place.
+            if pressed:
+                now = time.monotonic()
+                if now - self._last_press.get(index, -REPRESS_GUARD) < REPRESS_GUARD:
+                    self._swallowed.add(index)
+                    logger.info("Ignored a second press of key %d within %.1f s", index, REPRESS_GUARD)
+                    return
+                self._last_press[index] = now
+            elif index in self._swallowed:
+                self._swallowed.discard(index)
+                return
             payload = {"event": "keyDown" if pressed else "keyUp",
                        "payload": {"device": self._model.id, "position": index}}
         else:

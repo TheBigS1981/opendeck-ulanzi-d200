@@ -361,7 +361,10 @@ cell is left out of the bundle, so it doesn't flicker on every update.
 **Input.** Key presses, dial turns and dial presses arrive as HID input reports.
 The HID thread waits for them with a blocking read that times out every 100 ms,
 so an idle deck uses next to no CPU. They're forwarded to OpenDeck as `keyDown`/`keyUp` and
-`encoderChange`/`encoderDown`/`encoderUp`.
+`encoderChange`/`encoderDown`/`encoderUp`. A second press of the same key
+within 0.8 s is dropped, release included, so a page-switching key tapped twice
+doesn't also fire the key in its place on the new page (`D200X_REPRESS_GUARD`
+sets the time, `0` turns it off).
 
 **Keep-alive.** The firmware falls back to its boot logo if the host is silent
 for less than a minute. Whenever nothing has been written for 5 s, the plugin

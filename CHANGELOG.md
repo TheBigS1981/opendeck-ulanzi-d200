@@ -30,6 +30,11 @@
 
 ### Fixed
 
+- **A quick second tap no longer hits the next page.** A key that opens
+  another page was often tapped twice, because the deck shows the new page only
+  after a moment; the second tap then fired whatever the new page has in the same
+  place. A second press of the same key within 0.8 s is now ignored
+  (`D200X_REPRESS_GUARD` changes it, `0` turns it off).
 - **A key updated faster than 0.35 s froze the deck.** Each update restarted
   the wait for quiet, so no bundle went out until it stopped. Updates are now
   collected in fixed 0.35 s windows.

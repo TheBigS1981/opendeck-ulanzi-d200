@@ -33,6 +33,12 @@
 
 ### Corregido
 
+- **Un segundo toque rápido ya no acierta en la página siguiente.** Una tecla
+  que abre otra página se pulsaba a menudo dos veces, porque el deck muestra la
+  página nueva solo tras un momento; el segundo toque disparaba lo que la página
+  nueva tiene en el mismo sitio. Ahora se ignora una segunda pulsación de la
+  misma tecla en menos de 0,8 s (`D200X_REPRESS_GUARD` lo cambia, `0` lo
+  desactiva).
 - **Una tecla que cambiaba más rápido que cada 0,35 s congelaba el deck.** Cada
   cambio reiniciaba la espera, así que no salía ningún paquete hasta que paraba.
   Ahora los cambios se juntan en ventanas fijas de 0,35 s.
