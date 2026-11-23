@@ -67,8 +67,10 @@ slot. Any *other* action there wins and its icon is rendered instead.
 `clock` → firmware mode 1, `stats` → mode 0 fed real percentages, `off` → mode 2
 with a black icon. The device measures nothing itself: the CPU/RAM/GPU gauges
 draw whatever the last `SET_SMALL_WINDOW` carried, sampled from `/proc/stat`,
-`/proc/meminfo` and `gpu_busy_percent`/`nvidia-smi`. It does keep its own time,
-so the clock is seeded once and left alone.
+`/proc/meminfo` and `gpu_busy_percent`/`nvidia-smi`. It does keep its own time
+in the old clock (mode 1), so that one is seeded once and left alone; the
+digital clocks (modes 200–203) freeze on the time last sent, so `_minute_loop`
+restates them at every minute boundary.
 
 ## Hardware protocol
 

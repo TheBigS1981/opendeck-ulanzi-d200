@@ -125,6 +125,8 @@ WINDOW_MODE_DATE_TIME_WEEKDAY = 200
 WINDOW_MODE_TIME_WEEKDAY = 201
 WINDOW_MODE_TIME_DATE = 202
 WINDOW_MODE_TIME = 203
+DIGITAL_CLOCK_MODES = frozenset({WINDOW_MODE_DATE_TIME_WEEKDAY, WINDOW_MODE_TIME_WEEKDAY,
+                                 WINDOW_MODE_TIME_DATE, WINDOW_MODE_TIME})
 
 # What the wide screen shows when no other action occupies it. Stored in the
 # plugin's global settings and edited from the "Wide screen" property inspector.
@@ -862,6 +864,7 @@ class D200XPlugin:
                 self._loop.call_later(SETTINGS_WAIT, self._start_hid)
                 clock = self._loop.create_task(self._clock_loop())
                 overlay = self._loop.create_task(self._overlay_loop())
+                minute = self._loop.create_task(self._minute_loop())
 
                 async for message in ws:
                     try:
@@ -872,6 +875,7 @@ class D200XPlugin:
             if clock is not None:
                 clock.cancel()
                 overlay.cancel()
+                minute.cancel()
             self._hid.stop()
         logger.info("Websocket closed, exiting")
 
@@ -1291,6 +1295,16 @@ class D200XPlugin:
                 continue
             self._stats_cache = await asyncio.to_thread(self._stats.read)
             self._push_window_mode()
+
+    async def _minute_loop(self) -> None:
+        # Unlike the old clock (mode 1), the digital clocks don't run on their
+        # own: they show the time they were last sent and stay frozen there. So
+        # restate it at every minute boundary, where the digits change anyway
+        # and the repaint can't be seen as a blink.
+        while True:
+            await asyncio.sleep(60.05 - time.time() % 60)
+            if self._registered and self._window_mode in DIGITAL_CLOCK_MODES:
+                self._push_window_mode()
 
 
 # --------------------------------------------------------------------------- #

@@ -2,6 +2,16 @@
 
 # Registro de cambios
 
+## 1.5.1 — 2026-11-23
+
+### Corregido
+
+- **Los relojes digitales se quedaban parados.** A diferencia del reloj
+  antiguo, los relojes digitales no avanzan solos: muestran la última hora que
+  recibieron. Ahora el plugin vuelve a enviar la hora en cada cambio de minuto,
+  cuando los dígitos cambian de todos modos, así que el repintado no se ve como
+  un parpadeo.
+
 ## 1.5.0 — 2026-11-23
 
 ### Añadido

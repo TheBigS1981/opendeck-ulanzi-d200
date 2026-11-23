@@ -2,6 +2,15 @@
 
 # Changelog
 
+## 1.5.1 — 2026-11-23
+
+### Fixed
+
+- **The digital clocks froze.** Unlike the old clock, the digital clocks don't
+  run on their own: they keep showing the time they were last sent. The plugin
+  now sends the time again at every minute change, where the digits change
+  anyway, so the repaint doesn't show as a blink.
+
 ## 1.5.0 — 2026-11-23
 
 ### Added
