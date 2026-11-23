@@ -2,6 +2,41 @@
 
 # Registro de cambios
 
+## 1.5.0 — 2026-11-23
+
+### Añadido
+
+- **Relojes digitales en la pantalla ancha**: *Reloj digital*, *con fecha*,
+  *con día de la semana* y *con fecha y día de la semana*, los modos que ofrece
+  Ulanzi Studio. La fecha y el día siguen el idioma de OpenDeck (inglés, alemán,
+  español).
+- **Imagen de fondo bajo el reloj**: un `wide_background.png` en la carpeta del
+  plugin se dibuja bajo el reloj y los indicadores.
+- **Imágenes breves en la pantalla ancha desde otros programas**: un PNG
+  escrito en `d200x-wide-overlay.png` en la carpeta temporal se muestra durante
+  2,5 s, por ejemplo el valor de una ruleta mientras se gira. Ver
+  [La pantalla ancha](README.es.md#la-pantalla-ancha).
+- **Archivo de inactividad**: cada pulsación de tecla y cada evento de ruleta
+  actualiza `d200x-last-input` en la carpeta temporal, así que otros programas
+  pueden saber cuánto tiempo lleva el deck sin tocarse.
+- **D200X probada en Windows 11**: teclas, ruletas, botones laterales y la
+  pantalla ancha.
+
+### Cambiado
+
+- **Solo se envían las teclas que cambian.** Un paquete lleva ahora solo las
+  teclas cuyo icono ha cambiado; las demás conservan su imagen. Una tecla en
+  vivo (un temporizador, un indicador) ya no hace parpadear todo el deck.
+- **Actualizaciones cada 0,5 s en vez de 1,5 s.** Con paquetes más pequeños el
+  firmware aguanta: 0,5 s funcionó durante minutos de paquetes seguidos sin un
+  solo reinicio. `D200X_MIN_INTERVAL` lo cambia.
+
+### Corregido
+
+- **Una tecla que cambiaba más rápido que cada 0,35 s congelaba el deck.** Cada
+  cambio reiniciaba la espera, así que no salía ningún paquete hasta que paraba.
+  Ahora los cambios se juntan en ventanas fijas de 0,35 s.
+
 ## 1.4.0 — 2026-11-06
 
 ### Cambiado

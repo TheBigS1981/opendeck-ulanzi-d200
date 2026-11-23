@@ -60,6 +60,10 @@
 				en: {
 					label: "Wide screen",
 					clock: "Clock (built into the device)",
+					time: "Digital clock",
+					timedate: "Digital clock with date",
+					timeweekday: "Digital clock with weekday",
+					datetimeweekday: "Digital clock with date and weekday",
 					stats: "System monitor (CPU / RAM / GPU)",
 					off: "Off (black)",
 					model: "Model",
@@ -76,6 +80,10 @@
 				es: {
 					label: "Pantalla ancha",
 					clock: "Reloj (integrado en el dispositivo)",
+					time: "Reloj digital",
+					timedate: "Reloj digital con fecha",
+					timeweekday: "Reloj digital con día de la semana",
+					datetimeweekday: "Reloj digital con fecha y día de la semana",
 					stats: "Monitor del sistema (CPU / RAM / GPU)",
 					off: "Apagada (en negro)",
 					model: "Modelo",
@@ -106,7 +114,7 @@
 				document.getElementById("warning").textContent = strings.warning;
 				document.getElementById("modelLabel").textContent = strings.model;
 				document.getElementById("modelHint").textContent = strings.modelHint;
-				for (const key of ["clock", "stats", "off"]) {
+				for (const key of ["clock", "time", "timedate", "timeweekday", "datetimeweekday", "stats", "off"]) {
 					document.querySelector(`option[value="${key}"]`).textContent = strings[key];
 				}
 
@@ -155,6 +163,10 @@
 			<label id="label" for="mode">Wide screen</label>
 			<select id="mode">
 				<option value="clock">Clock (built into the device)</option>
+				<option value="time">Digital clock</option>
+				<option value="timedate">Digital clock with date</option>
+				<option value="timeweekday">Digital clock with weekday</option>
+				<option value="datetimeweekday">Digital clock with date and weekday</option>
 				<option value="stats">System monitor (CPU / RAM / GPU)</option>
 				<option value="off">Off (black)</option>
 			</select>

@@ -43,6 +43,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import zipfile
@@ -101,6 +102,10 @@ CMD_IN_BUTTON_ALT = 0x0102
 
 ICON_SIZE = 196          # native icon resolution of a single screen
 WIDE_ICON_WIDTH = 392    # the double-width screen is squeezed from 392 -> 196
+# The wide screen's real panel is 458x196 (bitfocus/companion-surface-ulanzi-
+# stream-controller), so pictures composed for it -- background, dial overlay --
+# are laid out at that ratio before being squeezed into the 196x196 icon.
+WIDE_SCREEN_WIDTH = 458
 
 # How many paddings to try before giving up on a clean bundle layout. A live
 # page bundles ~217 KiB, which puts ~216 bytes on a packet boundary, and each
@@ -113,6 +118,13 @@ BUNDLE_LAYOUT_ATTEMPTS = 200
 WINDOW_MODE_STATS = 0
 WINDOW_MODE_CLOCK = 1
 WINDOW_MODE_IMAGE = 2
+# Digital clock variants, as Ulanzi Studio sends them (IDs from USBPcap captures
+# in bitfocus/companion-surface-ulanzi-stream-controller). Each takes a suffix
+# after the 12H/24H marker; see _push_window_mode.
+WINDOW_MODE_DATE_TIME_WEEKDAY = 200
+WINDOW_MODE_TIME_WEEKDAY = 201
+WINDOW_MODE_TIME_DATE = 202
+WINDOW_MODE_TIME = 203
 
 # What the wide screen shows when no other action occupies it. Stored in the
 # plugin's global settings and edited from the "Wide screen" property inspector.
@@ -122,7 +134,39 @@ WIDE_MODES = {
     "clock": WINDOW_MODE_CLOCK,   # the firmware's own clock
     "stats": WINDOW_MODE_STATS,   # the firmware's CPU/RAM/GPU gauges
     "off": WINDOW_MODE_IMAGE,     # image mode fed a black icon
+    "time": WINDOW_MODE_TIME,
+    "timedate": WINDOW_MODE_TIME_DATE,
+    "timeweekday": WINDOW_MODE_TIME_WEEKDAY,
+    "datetimeweekday": WINDOW_MODE_DATE_TIME_WEEKDAY,
 }
+# Date and weekday text for the digital clocks, which the firmware prints as
+# given. Picked by OpenDeck's UI language (-info), English otherwise.
+CLOCK_LOCALES = {
+    "en": ("%Y/%m/%d", ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")),
+    "de": ("%d.%m.%Y", ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So")),
+    "es": ("%d/%m/%Y", ("lun", "mar", "mié", "jue", "vie", "sáb", "dom")),
+}
+
+# Optional picture under the firmware's clock/gauges: the firmware draws them
+# over the wide cell without clearing it, so whatever we paint there once is
+# the background. Any aspect works; it is scaled to cover the wide screen.
+WIDE_BACKGROUND_FILE = "wide_background.png"
+
+# A drop-in for short-lived pictures on the wide screen, e.g. the value of a
+# dial while it is turned. OpenDeck cannot carry those: for a dial it renders
+# its own name-plus-default-icon card and ignores the plugin's setImage. Any
+# program may write a PNG here; it is shown over the background for
+# OVERLAY_SECONDS after its last write, then the clock comes back. Write to a
+# temporary name and rename, so a half-written file is never read.
+OVERLAY_FILE = os.environ.get("D200X_OVERLAY_FILE") or os.path.join(
+    tempfile.gettempdir(), "d200x-wide-overlay.png")
+OVERLAY_SECONDS = 2.5
+OVERLAY_POLL = 0.1
+
+# Touched on every key press and dial event, so other programs can tell how
+# long the deck has been idle (e.g. to return to the main page).
+ACTIVITY_FILE = os.environ.get("D200X_ACTIVITY_FILE") or os.path.join(
+    tempfile.gettempdir(), "d200x-last-input")
 WIDE_DEFAULT = "clock"
 
 # --------------------------------------------------------------------------- #
@@ -272,7 +316,11 @@ def legacy_plugins_installed() -> list[str]:
 # --------------------------------------------------------------------------- #
 
 FLUSH_DEBOUNCE = 0.35    # coalesce a burst of setImage events into one bundle
-MIN_BUNDLE_INTERVAL = 1.5  # never push ZIP bundles faster than this
+# Never push ZIP bundles faster than this. D200X_MIN_INTERVAL overrides it,
+# for measuring how far a given firmware can be pushed.
+# 0.5 s held for 2.5 min of 1- to 4-key bundles (~125 KiB) back to back without a
+# single firmware reset once bundles carry only the changed cells.
+MIN_BUNDLE_INTERVAL = float(os.environ.get("D200X_MIN_INTERVAL", "0.5"))
 CLOCK_INTERVAL = 2.0     # how often the CPU/RAM/GPU gauges are refreshed
 GPU_INTERVAL = 5.0       # GPU utilisation is the expensive one to sample
 RECONNECT_GRACE = 30.0   # tolerate this long of HID absence before deregistering
@@ -375,6 +423,46 @@ def render_icon(raw: bytes, wide: bool) -> bytes:
         out = io.BytesIO()
         img.save(out, format="PNG", optimize=True)
         return out.getvalue()
+
+
+def render_background(path: str) -> Optional[bytes]:
+    """Scale-and-crop a picture to the wide screen, then squeeze it like a wide icon."""
+    try:
+        with Image.open(path) as src:
+            img = src.convert("RGB")
+    except (OSError, ValueError):
+        return None
+    scale = max(WIDE_SCREEN_WIDTH / img.width, ICON_SIZE / img.height)
+    img = img.resize((round(img.width * scale), round(img.height * scale)), Image.Resampling.LANCZOS)
+    left, top = (img.width - WIDE_SCREEN_WIDTH) // 2, (img.height - ICON_SIZE) // 2
+    img = img.crop((left, top, left + WIDE_SCREEN_WIDTH, top + ICON_SIZE))
+    img = img.resize((ICON_SIZE, ICON_SIZE), Image.Resampling.LANCZOS)
+    out = io.BytesIO()
+    img.save(out, format="PNG", optimize=True)
+    return out.getvalue()
+
+
+def render_overlay(raw: bytes, background: Optional[bytes]) -> bytes:
+    """A square picture, centred on the wide screen over the background.
+
+    A picture clearly wider than tall is taken as drawn for the whole screen
+    (WIDE_SCREEN_WIDTH x ICON_SIZE) and fills it."""
+    with Image.open(io.BytesIO(raw)) as src:
+        if src.width >= 1.5 * src.height:
+            full = src.convert("RGB").resize((WIDE_SCREEN_WIDTH, ICON_SIZE), Image.Resampling.LANCZOS)
+            out = io.BytesIO()
+            full.resize((ICON_SIZE, ICON_SIZE), Image.Resampling.LANCZOS).save(out, format="PNG", optimize=True)
+            return out.getvalue()
+        art = src.convert("RGBA").resize((ICON_SIZE, ICON_SIZE), Image.Resampling.LANCZOS)
+    if background:
+        with Image.open(io.BytesIO(background)) as bg:
+            canvas = bg.convert("RGB").resize((WIDE_SCREEN_WIDTH, ICON_SIZE), Image.Resampling.LANCZOS)
+    else:
+        canvas = Image.new("RGB", (WIDE_SCREEN_WIDTH, ICON_SIZE), (0, 0, 0))
+    canvas.paste(art, ((WIDE_SCREEN_WIDTH - ICON_SIZE) // 2, 0), art)
+    out = io.BytesIO()
+    canvas.resize((ICON_SIZE, ICON_SIZE), Image.Resampling.LANCZOS).save(out, format="PNG", optimize=True)
+    return out.getvalue()
 
 
 def blank_icon() -> bytes:
@@ -682,7 +770,8 @@ class HidWorker(threading.Thread):
 # --------------------------------------------------------------------------- #
 
 class D200XPlugin:
-    def __init__(self, port: int, uuid: str, register_event: str):
+    def __init__(self, port: int, uuid: str, register_event: str, language: str = "en"):
+        self._clock_locale = CLOCK_LOCALES.get(language[:2].lower(), CLOCK_LOCALES["en"])
         self._port = port
         self._uuid = uuid
         self._register_event = register_event
@@ -692,7 +781,12 @@ class D200XPlugin:
 
         self._icons: Dict[int, bytes] = {}
         self._blank = b""
-        self._sent_signature: Optional[str] = None
+        # What each cell is known to show, as the SHA-1 of the icon last sent to
+        # it. Only cells that differ go into the next bundle: a cell named in the
+        # manifest is repainted, so naming unchanged ones blinks the whole deck.
+        # Cleared whenever the device may have lost its picture (reconnect,
+        # firmware reset, model switch) so the next bundle is a full one.
+        self._sent_cells: Dict[int, bytes] = {}
         self._flush_handle: Optional[asyncio.TimerHandle] = None
         self._flush_task: Optional[asyncio.Task] = None
         self._last_bundle = 0.0
@@ -707,6 +801,9 @@ class D200XPlugin:
         self._stats_cache: Tuple[int, int, int] = (0, 0, 0)
         self._model = MODELS[MODEL_DEFAULT]
         self._hid_started = False
+        self._background: Optional[bytes] = None    # wide-cell picture under the clock
+        self._overlay: Optional[bytes] = None       # OVERLAY_FILE, rendered, while shown
+        self._overlay_mtime = 0.0
 
     # -- websocket ---------------------------------------------------------- #
 
@@ -722,6 +819,10 @@ class D200XPlugin:
     async def run(self) -> None:
         self._loop = asyncio.get_running_loop()
         self._blank = await asyncio.to_thread(blank_icon)
+        background = os.path.join(plugin_dir(), WIDE_BACKGROUND_FILE)
+        if os.path.isfile(background):
+            self._background = await asyncio.to_thread(render_background, background)
+            logger.info("Wide background: %s", "loaded" if self._background else "unreadable")
 
         self._hid = HidWorker(
             self._loop,
@@ -744,6 +845,7 @@ class D200XPlugin:
                 # wrong layout never shows up first.
                 self._loop.call_later(SETTINGS_WAIT, self._start_hid)
                 clock = self._loop.create_task(self._clock_loop())
+                overlay = self._loop.create_task(self._overlay_loop())
 
                 async for message in ws:
                     try:
@@ -753,6 +855,7 @@ class D200XPlugin:
         finally:
             if clock is not None:
                 clock.cancel()
+                overlay.cancel()
             self._hid.stop()
         logger.info("Websocket closed, exiting")
 
@@ -789,8 +892,9 @@ class D200XPlugin:
         # A device that has just been powered up is showing its boot logo, and
         # one that was merely replugged is showing whatever it had before. Either
         # way we no longer know what is in the wide cell, so the next bundle has
-        # to repaint it.
+        # to repaint it. The same goes for every key, so forget what we sent.
         self._wide_blanked = False
+        self._sent_cells.clear()
 
         # OpenDeck bakes titles into the images it renders, so the firmware must
         # not draw labels of its own on top.
@@ -808,7 +912,6 @@ class D200XPlugin:
             # Re-arm the cached bundle rather than asking OpenDeck to re-render:
             # a rerender request on every firmware reset turns into a loop.
             logger.info("Restoring %d cached icons", len(self._icons))
-            self._sent_signature = None
             self._schedule_flush()
         else:
             await self._send({"event": "rerenderImages", "payload": self._model.id})
@@ -828,6 +931,7 @@ class D200XPlugin:
         self._model = model
         # The other model has its own profile, so nothing cached carries over.
         self._icons.clear()
+        self._sent_cells.clear()
         self._wide_contexts.clear()
         if registered:
             await self._register_device()
@@ -934,8 +1038,18 @@ class D200XPlugin:
 
     # -- outbound HID input ------------------------------------------------- #
 
+    @staticmethod
+    def _touch_activity() -> None:
+        try:
+            with open(ACTIVITY_FILE, "a"):
+                pass
+            os.utime(ACTIVITY_FILE)
+        except OSError as exc:
+            logger.debug("Could not touch %s: %s", ACTIVITY_FILE, exc)
+
     def _on_hid_input(self, event: Tuple[int, bool, Optional[int]]) -> None:
         index, pressed, dial = event
+        self._touch_activity()
 
         if dial is not None:
             if not (DIAL_BASE <= index < DIAL_BASE + self._model.encoders):
@@ -962,8 +1076,11 @@ class D200XPlugin:
     # -- icon bundle flushing ----------------------------------------------- #
 
     def _schedule_flush(self) -> None:
+        # A fixed window, not a trailing debounce: restarting the timer on every
+        # event starves the deck completely while a plugin updates faster than
+        # FLUSH_DEBOUNCE (an animation, a countdown, a dial being turned).
         if self._flush_handle is not None:
-            self._flush_handle.cancel()
+            return
         self._flush_handle = self._loop.call_later(FLUSH_DEBOUNCE, self._start_flush)
 
     def _start_flush(self) -> None:
@@ -980,6 +1097,8 @@ class D200XPlugin:
             await asyncio.sleep(wait)
 
         icons = {index: self._icons.get(index, self._blank) for index in SCREEN_KEYS}
+        if self._overlay is not None and not self._wide_shows_action():
+            icons[WIDE_KEY] = self._overlay
 
         mode = self._wide_mode()
         if mode != self._window_mode:
@@ -999,28 +1118,38 @@ class D200XPlugin:
         # that used to sit on the key. Lay down a black background the first time
         # we take the cell over, then go back to omitting it -- one repaint at
         # connect costs nothing, one on every push is the flicker we just fixed.
+        under = self._background or self._blank
         if omit and not self._wide_blanked:
             omit = frozenset()
-            icons[WIDE_KEY] = self._blank
+            icons[WIDE_KEY] = under
 
-        signature = hashlib.sha1(
-            b"".join(hashlib.sha1(icons[i]).digest() for i in SCREEN_KEYS if i not in omit)
-            + repr(sorted(omit)).encode()
-        ).hexdigest()
-        if signature == self._sent_signature:
+        # While the firmware draws the wide cell, whatever we last sent there is
+        # gone from view; forget it so taking the cell back repaints it.
+        if WIDE_KEY in omit:
+            self._sent_cells.pop(WIDE_KEY, None)
+
+        # Delta bundle: a cell named in the manifest is repainted, a cell left out
+        # keeps its picture (the wide-screen omit above relies on the same rule).
+        # So only the cells whose icon actually changed go out, and a live key no
+        # longer makes every other key blink with it.
+        digests = {i: hashlib.sha1(icons[i]).digest() for i in SCREEN_KEYS if i not in omit}
+        changed = [i for i, d in digests.items() if self._sent_cells.get(i) != d]
+        if not changed:
             return
+        omit = frozenset(SCREEN_KEYS) - frozenset(changed)
 
         bundle = await asyncio.to_thread(build_bundle, icons, omit)
-        self._sent_signature = signature
+        for i in changed:
+            self._sent_cells[i] = digests[i]
         self._last_bundle = time.monotonic()
         self._hid.submit("bundle", bundle)
-        logger.info("Pushed icon bundle (%d icons, %.1f KiB%s)", len(self._icons), len(bundle) / 1024,
-                    "" if WIDE_KEY in omit else ", wide cell repainted")
+        logger.info("Pushed icon bundle (%d of %d cells, %.1f KiB%s)", len(changed), len(digests),
+                    len(bundle) / 1024, "" if WIDE_KEY in omit else ", wide cell repainted")
         if WIDE_KEY not in omit:
             # This bundle paints the wide cell, so its background stops being a
             # guess: black if that is what went out, an icon otherwise -- and an
             # icon has to be cleared again once the firmware takes the cell back.
-            self._wide_blanked = icons[WIDE_KEY] == self._blank
+            self._wide_blanked = icons[WIDE_KEY] == under
             if mode != WINDOW_MODE_IMAGE:
                 # Painting the cell drops the firmware out of clock and stats
                 # mode, and _apply_wide_mode will not restate a mode it believes
@@ -1036,7 +1165,7 @@ class D200XPlugin:
         return WIDE_KEY in self._icons and not self._wide_contexts
 
     def _wide_mode(self) -> int:
-        if self._wide_shows_action():
+        if self._wide_shows_action() or self._overlay is not None:
             return WINDOW_MODE_IMAGE
         return WIDE_MODES[self._wide_setting]
 
@@ -1049,7 +1178,18 @@ class D200XPlugin:
 
     def _push_window_mode(self, note: str = "") -> None:
         cpu, memory, gpu = self._stats_cache
-        payload = f"{self._window_mode}|{cpu}|{memory}|{time.strftime('%H:%M:%S')}|{gpu}"
+        now = time.localtime()
+        date_format, weekdays = self._clock_locale
+        date, weekday = time.strftime(date_format, now), weekdays[now.tm_wday]
+        suffix = {
+            WINDOW_MODE_DATE_TIME_WEEKDAY: f"{date} {weekday}",
+            WINDOW_MODE_TIME_WEEKDAY: weekday,
+            WINDOW_MODE_TIME_DATE: date,
+        }.get(self._window_mode, "")
+        # The 7-field form Ulanzi Studio sends: the digital clocks need the
+        # 12H/24H marker and their suffix; the older modes ignore both.
+        payload = (f"{self._window_mode}|{cpu}|{memory}|{time.strftime('%H:%M:%S', now)}|{gpu}"
+                   f"|24H|{suffix}")
         self._hid.submit("command", CMD_SET_SMALL_WINDOW, payload.encode("utf-8"))
         # Worth a line whenever the mode itself is at stake: a mode command that
         # never lands leaves the wide screen on a display nobody asked for, and
@@ -1059,6 +1199,35 @@ class D200XPlugin:
             logger.info("Small window mode %d%s", self._window_mode,
                         f" ({note})" if note else "")
         self._window_mode_sent = self._window_mode
+
+    async def _overlay_loop(self) -> None:
+        try:
+            # Whatever is there from before this run is stale.
+            self._overlay_mtime = os.stat(OVERLAY_FILE).st_mtime
+        except OSError:
+            pass
+        while True:
+            await asyncio.sleep(OVERLAY_POLL)
+            try:
+                mtime = os.stat(OVERLAY_FILE).st_mtime
+            except OSError:
+                mtime = self._overlay_mtime
+            if mtime != self._overlay_mtime:
+                self._overlay_mtime = mtime
+                try:
+                    with open(OVERLAY_FILE, "rb") as handle:
+                        raw = handle.read()
+                    self._overlay = await asyncio.to_thread(render_overlay, raw, self._background)
+                except Exception as exc:
+                    logger.warning("Could not show %s: %s", OVERLAY_FILE, exc)
+                    continue
+                self._apply_wide_mode()
+            elif self._overlay is not None and time.time() - mtime > OVERLAY_SECONDS:
+                self._overlay = None
+                # The overlay was painted into the wide cell; the background has
+                # to go back under the clock before the firmware takes over again.
+                self._wide_blanked = False
+                self._apply_wide_mode()
 
     async def _clock_loop(self) -> None:
         while True:
@@ -1110,7 +1279,11 @@ def main() -> int:
                        "deck; remove it from OpenDeck's Plugins tab and restart OpenDeck.", legacy)
 
     args = parse_args(sys.argv[1:])
-    plugin = D200XPlugin(args.port, args.uuid, args.register_event)
+    try:
+        language = str(json.loads(args.info).get("application", {}).get("language") or "en")
+    except (ValueError, AttributeError):
+        language = "en"
+    plugin = D200XPlugin(args.port, args.uuid, args.register_event, language)
     try:
         asyncio.run(plugin.run())
     except KeyboardInterrupt:

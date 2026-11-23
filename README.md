@@ -31,7 +31,7 @@ dials and side buttons. You don't need Ulanzi Studio.
 
 | Model | Screens | Dials | Side buttons | Status |
 |---|---|---|---|---|
-| **D200X** | 13 keys + 1 wide screen | 3 (turn + press) | 2 | supported (upstream, Linux) |
+| **D200X** | 13 keys + 1 wide screen | 3 (turn + press) | 2 | supported, tested on Windows 11 (keys, dials, side buttons) and upstream on Linux |
 | **D200H** (deck dock) | 13 keys + 1 wide screen | — | — | supported, tested on Windows 11 |
 
 Both models use the same USB ID (`2207:0019`) and the same protocol. They can't
@@ -237,6 +237,8 @@ By default the wide screen shows the deck's own **clock**. To change it, drag th
 | Mode | What the screen shows |
 |---|---|
 | **Clock** (default) | the clock built into the device |
+| **Digital clock** | a large digital clock, as Ulanzi Studio offers it |
+| **Digital clock with date** / **with weekday** / **with date and weekday** | the same, with the date and/or weekday below |
 | **System monitor** | CPU, RAM and GPU gauges, fed by the plugin every 2 s |
 | **Off** | black |
 
@@ -245,9 +247,32 @@ If you put any **other** action on key 13, the wide screen shows that action's
 icon instead, letterboxed so it isn't stretched. Either way, pressing the wide
 screen fires key 13.
 
+The digital clocks write the date and weekday in OpenDeck's language (English,
+German or Spanish; English otherwise).
+
 The system monitor gets CPU and RAM from the OS. GPU load comes from
 `nvidia-smi` on NVIDIA cards, or from `gpu_busy_percent` on Linux AMD cards. On
 other GPUs the gauge reads 0.
+
+**Background picture.** Put a picture named `wide_background.png` in the
+plugin's folder and restart OpenDeck: the clock and gauges are drawn over it.
+Any size works; it's scaled to cover the screen.
+
+**Pictures from other programs.** OpenDeck gives a plugin no way to show
+something on the wide screen for a moment (a dial's own picture never reaches
+the deck), so the plugin watches a file instead. Write a PNG to
+`%TEMP%\d200x-wide-overlay.png` (Windows) or `$TMPDIR/d200x-wide-overlay.png`
+(Linux, usually `/tmp`), or to the path in `D200X_OVERLAY_FILE`, and it's shown
+on the wide screen for 2.5 s after the last write, then the clock comes back.
+A square picture is centred over the background; one at least 1.5 times as wide
+as tall fills the screen (draw it at 458×196, the panel's real size). Write to
+a temporary name and rename it, so a half-written file is never read. Another
+plugin can use this to show a dial's value while it's turned, or a short list.
+
+**Idle time.** Every key press and dial event touches
+`%TEMP%\d200x-last-input` (or `D200X_ACTIVITY_FILE`), so other programs can
+tell how long the deck has been left alone, for example to switch back to the
+main page.
 
 ### Brightness
 
@@ -266,9 +291,9 @@ OpenDeck's brightness setting and the **Device Brightness** action are passed st
   correctly with no plugin update.
 - **D200X side buttons get their own row** in the editor, at full size, rather
   than sitting beside the dials. This is the same OpenDeck layout limitation.
-- **Icons are re-sent as one bundle.** The firmware can't update a single key, so
-  every change re-sends all icons (see [How it works](#how-it-works)). A page with
-  many fast-changing keys updates at most every 1.5 s.
+- **Icons go out in bundles.** The firmware takes icons only as a ZIP bundle
+  (see [How it works](#how-it-works)), so the deck updates at most every 0.5 s,
+  however fast a key changes.
 - **Only one program can drive the deck.** Close Ulanzi Studio, and don't install
   a second D200 plugin such as `com.glmagalhaes.ulanzi.d200.sdPlugin`.
 
@@ -320,10 +345,15 @@ bundle** containing a `manifest.json` and every icon, sent in 1024-byte packets.
 So the plugin:
 
 1. scales each image to 196×196 and caches it;
-2. waits for bursts of updates to settle (0.35 s) and sends at most one bundle
-   every 1.5 s;
-3. pads the ZIP until no `0x00` or `0x7c` byte lands on a packet boundary, which
+2. collects the updates of 0.35 s into one bundle and sends at most one bundle
+   every 0.5 s (`D200X_MIN_INTERVAL` overrides it);
+3. puts only the keys whose icon changed into the bundle: a key named in the
+   bundle is repainted, one left out keeps its picture, so a live key doesn't
+   make the others blink;
+4. pads the ZIP until no `0x00` or `0x7c` byte lands on a packet boundary, which
    works around a firmware parsing bug.
+
+After a reconnect or firmware reset the next bundle carries every key again.
 
 While the firmware draws the wide screen itself (clock or system monitor), that
 cell is left out of the bundle, so it doesn't flicker on every update.

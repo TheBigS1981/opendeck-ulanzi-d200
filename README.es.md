@@ -32,7 +32,7 @@ necesitas Ulanzi Studio.
 
 | Modelo | Pantallas | Ruletas | Botones laterales | Estado |
 |---|---|---|---|---|
-| **D200X** | 13 teclas + 1 pantalla ancha | 3 (giro + pulsación) | 2 | soportado (original, Linux) |
+| **D200X** | 13 teclas + 1 pantalla ancha | 3 (giro + pulsación) | 2 | soportado, probado en Windows 11 (teclas, ruletas, botones laterales) y en el original con Linux |
 | **D200H** (deck dock) | 13 teclas + 1 pantalla ancha | — | — | soportado, probado en Windows 11 |
 
 Los dos modelos usan el mismo ID USB (`2207:0019`) y el mismo protocolo. No se
@@ -247,6 +247,8 @@ modo:
 | Modo | Qué muestra la pantalla |
 |---|---|
 | **Reloj** (por defecto) | el reloj integrado en el dispositivo |
+| **Reloj digital** | un reloj digital grande, como el que ofrece Ulanzi Studio |
+| **Reloj digital con fecha** / **con día de la semana** / **con fecha y día de la semana** | lo mismo, con la fecha y/o el día de la semana debajo |
 | **Monitor del sistema** | indicadores de CPU, RAM y GPU que el plugin actualiza cada 2 s |
 | **Apagada** | negro |
 
@@ -255,9 +257,33 @@ pones **cualquier otra** acción en la tecla 13, la pantalla ancha muestra su
 icono, con bandas negras para que no se deforme. En ambos casos, pulsar la
 pantalla ancha dispara la tecla 13.
 
+Los relojes digitales escriben la fecha y el día de la semana en el idioma de
+OpenDeck (inglés, alemán o español; si no, en inglés).
+
 El monitor del sistema obtiene CPU y RAM del sistema operativo. La carga de la
 GPU sale de `nvidia-smi` en tarjetas NVIDIA, o de `gpu_busy_percent` en tarjetas
 AMD con Linux. Con otras GPU el indicador marca 0.
+
+**Imagen de fondo.** Pon una imagen llamada `wide_background.png` en la carpeta
+del plugin y reinicia OpenDeck: el reloj y los indicadores se dibujan encima.
+Sirve cualquier tamaño; se escala para cubrir la pantalla.
+
+**Imágenes de otros programas.** OpenDeck no da a un plugin ninguna forma de
+mostrar algo un momento en la pantalla ancha (la imagen propia de una ruleta
+nunca llega al deck), así que el plugin vigila un archivo. Escribe un PNG en
+`%TEMP%\d200x-wide-overlay.png` (Windows) o `$TMPDIR/d200x-wide-overlay.png`
+(Linux, normalmente `/tmp`), o en la ruta de `D200X_OVERLAY_FILE`, y se muestra
+en la pantalla ancha durante 2,5 s tras la última escritura; después vuelve el
+reloj. Una imagen cuadrada se centra sobre el fondo; una al menos 1,5 veces más
+ancha que alta llena la pantalla (dibújala a 458×196, el tamaño real del
+panel). Escribe a un nombre temporal y renómbralo, para que nunca se lea un
+archivo a medias. Otro plugin puede usarlo para mostrar el valor de una ruleta
+mientras se gira, o una lista corta.
+
+**Tiempo de inactividad.** Cada pulsación de tecla y cada evento de ruleta
+actualiza `%TEMP%\d200x-last-input` (o `D200X_ACTIVITY_FILE`), así que otros
+programas pueden saber cuánto tiempo lleva el deck sin tocarse, por ejemplo para
+volver a la página principal.
 
 ### Brillo
 
@@ -279,10 +305,9 @@ directamente al deck.
 - **Los botones laterales de la D200X tienen su propia fila** en el editor, a
   tamaño completo, en vez de ir junto a las ruletas. Es la misma limitación de
   diseño de OpenDeck.
-- **Los iconos se envían en un único paquete.** El firmware no puede actualizar
-  una sola tecla, así que cada cambio reenvía todos los iconos (ver
-  [Cómo funciona](#cómo-funciona)). Una página con muchas teclas que cambian
-  rápido se actualiza como mucho cada 1,5 s.
+- **Los iconos se envían en paquetes.** El firmware solo acepta iconos en un
+  paquete ZIP (ver [Cómo funciona](#cómo-funciona)), así que el deck se
+  actualiza como mucho cada 0,5 s, por rápido que cambie una tecla.
 - **Solo un programa puede controlar el deck.** Cierra Ulanzi Studio y no
   instales un segundo plugin de D200, como `com.glmagalhaes.ulanzi.d200.sdPlugin`.
 
@@ -335,10 +360,16 @@ ZIP** con un `manifest.json` y todos los iconos, enviado en paquetes de 1024
 bytes. Así que el plugin:
 
 1. escala cada imagen a 196×196 y la guarda en caché;
-2. espera a que se calmen las ráfagas de cambios (0,35 s) y envía como mucho un
-   paquete cada 1,5 s;
-3. rellena el ZIP hasta que ningún byte `0x00` o `0x7c` caiga en el límite de un
+2. junta los cambios de 0,35 s en un solo paquete y envía como mucho un paquete
+   cada 0,5 s (`D200X_MIN_INTERVAL` lo cambia);
+3. mete en el paquete solo las teclas cuyo icono ha cambiado: una tecla nombrada
+   en el paquete se redibuja y una que se queda fuera conserva su imagen, así que
+   una tecla en vivo no hace parpadear a las demás;
+4. rellena el ZIP hasta que ningún byte `0x00` o `0x7c` caiga en el límite de un
    paquete, para esquivar un fallo de lectura del firmware.
+
+Tras una reconexión o un reinicio del firmware, el siguiente paquete vuelve a
+llevar todas las teclas.
 
 Mientras el firmware dibuja él mismo la pantalla ancha (reloj o monitor), esa
 celda se deja fuera del paquete para que no parpadee en cada actualización.

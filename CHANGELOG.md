@@ -2,6 +2,38 @@
 
 # Changelog
 
+## 1.5.0 — 2026-11-23
+
+### Added
+
+- **Digital clocks on the wide screen**: *Digital clock*, *with date*, *with
+  weekday* and *with date and weekday*, the modes Ulanzi Studio offers. Date and
+  weekday follow OpenDeck's language (English, German, Spanish).
+- **Background picture under the clock**: a `wide_background.png` in the
+  plugin's folder is drawn under the clock and gauges.
+- **Short-lived pictures on the wide screen from other programs**: a PNG
+  written to `d200x-wide-overlay.png` in the temp folder is shown for 2.5 s, for
+  example a dial's value while it's turned. See
+  [The wide screen](README.md#the-wide-screen).
+- **Idle file**: every key press and dial event touches `d200x-last-input` in
+  the temp folder, so other programs can tell how long the deck has been idle.
+- **D200X tested on Windows 11**: keys, dials, side buttons and the wide screen.
+
+### Changed
+
+- **Only changed keys are sent.** A bundle now carries just the keys whose
+  icon changed; the others keep their picture. A live key (a timer, a meter)
+  no longer makes the whole deck blink.
+- **Updates every 0.5 s instead of 1.5 s.** With smaller bundles the firmware
+  keeps up: 0.5 s held for minutes of back-to-back bundles without a reset.
+  `D200X_MIN_INTERVAL` overrides it.
+
+### Fixed
+
+- **A key updated faster than 0.35 s froze the deck.** Each update restarted
+  the wait for quiet, so no bundle went out until it stopped. Updates are now
+  collected in fixed 0.35 s windows.
+
 ## 1.4.0 — 2026-11-06
 
 ### Changed
