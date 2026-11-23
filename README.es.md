@@ -285,6 +285,14 @@ actualiza `%TEMP%\d200x-last-input` (o `D200X_ACTIVITY_FILE`), así que otros
 programas pueden saber cuánto tiempo lleva el deck sin tocarse, por ejemplo para
 volver a la página principal.
 
+### Borde de las teclas
+
+Las imágenes que llenan todo su cuadrado llegan justo hasta el borde de la
+pantalla de la tecla. Los ajustes de la acción **Wide screen** tienen también
+**Borde de las teclas** (ninguno, fino, medio, ancho): un borde negro de 0, 4, 8
+o 12 píxeles alrededor de la imagen de cada tecla, salvo la pantalla ancha. Es
+global, como el modo.
+
 ### Brillo
 
 El ajuste de brillo de OpenDeck y la acción **Device Brightness** se pasan

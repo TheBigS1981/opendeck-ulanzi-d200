@@ -130,6 +130,10 @@ WINDOW_MODE_TIME = 203
 # plugin's global settings and edited from the "Wide screen" property inspector.
 ACTION_WIDE_SCREEN = "io.github.kastro5.ulanzi-d200.widescreen"
 WIDE_SETTING = "wideMode"
+# Global setting: a black border of this many pixels (of 196) around every key's
+# picture, so artwork that fills its square doesn't run into the screen's edge.
+KEY_MARGIN_SETTING = "keyMargin"
+MAX_KEY_MARGIN = 24
 WIDE_MODES = {
     "clock": WINDOW_MODE_CLOCK,   # the firmware's own clock
     "stats": WINDOW_MODE_STATS,   # the firmware's CPU/RAM/GPU gauges
@@ -410,15 +414,20 @@ def _decode_data_url(image: str) -> Optional[bytes]:
         return None
 
 
-def render_icon(raw: bytes, wide: bool) -> bytes:
+def render_icon(raw: bytes, wide: bool, margin: int = 0) -> bytes:
     """Convert an OpenDeck-rendered image into a D200X icon PNG.
 
     The double-width screen is driven by a 196x196 icon that the firmware
     stretches to 2:1, so a wide icon is composed on a 392x196 canvas (square
     artwork centred, black bars either side) and then squeezed back down.
+    ``margin`` shrinks a key's picture inside a black border of that many pixels.
     """
     with Image.open(io.BytesIO(raw)) as src:
         img = src.convert("RGB").resize((ICON_SIZE, ICON_SIZE), Image.Resampling.LANCZOS)
+        if margin and not wide:
+            inner = img.resize((ICON_SIZE - 2 * margin,) * 2, Image.Resampling.LANCZOS)
+            img = Image.new("RGB", (ICON_SIZE, ICON_SIZE), (0, 0, 0))
+            img.paste(inner, (margin, margin))
         if wide:
             canvas = Image.new("RGB", (WIDE_ICON_WIDTH, ICON_SIZE), (0, 0, 0))
             canvas.paste(img, ((WIDE_ICON_WIDTH - ICON_SIZE) // 2, 0))
@@ -807,6 +816,8 @@ class D200XPlugin:
         self._background: Optional[bytes] = None    # wide-cell picture under the clock
         self._overlay: Optional[bytes] = None       # OVERLAY_FILE, rendered, while shown
         self._overlay_mtime = 0.0
+        self._raw_icons: Dict[int, bytes] = {}      # OpenDeck's images, to redraw on a border change
+        self._key_margin = 0
         self._last_press: Dict[int, float] = {}     # key -> monotonic time of its last press
         self._swallowed: set = set()                # keys whose release must be dropped too
 
@@ -936,6 +947,7 @@ class D200XPlugin:
         self._model = model
         # The other model has its own profile, so nothing cached carries over.
         self._icons.clear()
+        self._raw_icons.clear()
         self._sent_cells.clear()
         self._wide_contexts.clear()
         if registered:
@@ -974,6 +986,11 @@ class D200XPlugin:
             logger.info("Model: %s", model.name)
             self._loop.create_task(self._switch_model(model))
         self._start_hid()
+        try:
+            margin = max(0, min(MAX_KEY_MARGIN, int(settings.get(KEY_MARGIN_SETTING, 0))))
+        except (TypeError, ValueError):
+            margin = 0
+        self._set_key_margin(margin)
 
         mode = str(settings.get(WIDE_SETTING, WIDE_DEFAULT)).lower()
         if mode not in WIDE_MODES:
@@ -1015,6 +1032,7 @@ class D200XPlugin:
 
         if controller is None and position is None:
             self._icons.clear()
+            self._raw_icons.clear()
             self._schedule_flush()
             return
 
@@ -1029,16 +1047,31 @@ class D200XPlugin:
         raw = _decode_data_url(message.get("image") or "")
         if raw is None:
             self._icons.pop(position, None)
+            self._raw_icons.pop(position, None)
             self._schedule_flush()
             return
 
         try:
-            icon = render_icon(raw, wide=(position == WIDE_KEY))
+            icon = render_icon(raw, wide=(position == WIDE_KEY), margin=self._key_margin)
         except Exception as exc:
             logger.warning("Could not decode image for key %s: %s", position, exc)
             return
 
+        self._raw_icons[position] = raw
         self._icons[position] = icon
+        self._schedule_flush()
+
+    def _set_key_margin(self, margin: int) -> None:
+        """Redraw every key with a new border; OpenDeck won't resend the images."""
+        if margin == self._key_margin:
+            return
+        self._key_margin = margin
+        logger.info("Key border: %d px", margin)
+        for position, raw in self._raw_icons.items():
+            try:
+                self._icons[position] = render_icon(raw, wide=(position == WIDE_KEY), margin=margin)
+            except Exception as exc:
+                logger.warning("Could not redraw key %s: %s", position, exc)
         self._schedule_flush()
 
     # -- outbound HID input ------------------------------------------------- #

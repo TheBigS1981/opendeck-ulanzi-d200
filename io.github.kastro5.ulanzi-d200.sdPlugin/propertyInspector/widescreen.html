@@ -66,6 +66,14 @@
 					datetimeweekday: "Digital clock with date and weekday",
 					stats: "System monitor (CPU / RAM / GPU)",
 					off: "Off (black)",
+					margin: "Key border",
+					marginHint:
+						"A black border around every key (not the wide screen), so the picture " +
+						"doesn't run into the edge of the screen.",
+					margin0: "None",
+					margin4: "Thin",
+					margin8: "Medium",
+					margin12: "Wide",
 					model: "Model",
 					modelHint:
 						"Both models look the same to the computer, so pick yours here. " +
@@ -86,6 +94,14 @@
 					datetimeweekday: "Reloj digital con fecha y día de la semana",
 					stats: "Monitor del sistema (CPU / RAM / GPU)",
 					off: "Apagada (en negro)",
+					margin: "Borde de las teclas",
+					marginHint:
+						"Un borde negro alrededor de cada tecla (no de la pantalla ancha), para que " +
+						"la imagen no llegue hasta el borde de la pantalla.",
+					margin0: "Ninguno",
+					margin4: "Fino",
+					margin8: "Medio",
+					margin12: "Ancho",
 					model: "Modelo",
 					modelHint:
 						"Para el ordenador los dos modelos son idénticos, así que elige el tuyo aquí. " +
@@ -114,6 +130,11 @@
 				document.getElementById("warning").textContent = strings.warning;
 				document.getElementById("modelLabel").textContent = strings.model;
 				document.getElementById("modelHint").textContent = strings.modelHint;
+				document.getElementById("marginLabel").textContent = strings.margin;
+				document.getElementById("marginHint").textContent = strings.marginHint;
+				for (const px of [0, 4, 8, 12]) {
+					document.querySelector(`#margin option[value="${px}"]`).textContent = strings["margin" + px];
+				}
 				for (const key of ["clock", "time", "timedate", "timeweekday", "datetimeweekday", "stats", "off"]) {
 					document.querySelector(`option[value="${key}"]`).textContent = strings[key];
 				}
@@ -125,6 +146,7 @@
 
 				const mode = document.getElementById("mode");
 				const model = document.getElementById("model");
+				const margin = document.getElementById("margin");
 				let settings = {};
 
 				const websocket = new WebSocket("ws://localhost:" + inPort);
@@ -138,6 +160,7 @@
 					settings = (data.payload && data.payload.settings) || {};
 					mode.value = settings.wideMode || "clock";
 					model.value = settings.model || "d200x";
+					margin.value = String(settings.keyMargin || 0);
 				};
 
 				// Global, not per-instance: the wide screen has one mode whether
@@ -155,6 +178,7 @@
 				};
 				mode.onchange = () => save({ wideMode: mode.value });
 				model.onchange = () => save({ model: model.value });
+				margin.onchange = () => save({ keyMargin: Number(margin.value) });
 			}
 		</script>
 	</head>
@@ -181,5 +205,15 @@
 			</select>
 		</div>
 		<p id="modelHint"></p>
+		<div class="row">
+			<label id="marginLabel" for="margin">Key border</label>
+			<select id="margin">
+				<option value="0">None</option>
+				<option value="4">Thin</option>
+				<option value="8">Medium</option>
+				<option value="12">Wide</option>
+			</select>
+		</div>
+		<p id="marginHint"></p>
 	</body>
 </html>

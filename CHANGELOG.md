@@ -17,6 +17,9 @@
   [The wide screen](README.md#the-wide-screen).
 - **Idle file**: every key press and dial event touches `d200x-last-input` in
   the temp folder, so other programs can tell how long the deck has been idle.
+- **Key border**: a black border of 4, 8 or 12 pixels around every key, set in
+  the Wide screen action's settings, so pictures don't run into the screen's
+  edge.
 - **D200X tested on Windows 11**: keys, dials, side buttons and the wide screen.
 
 ### Changed

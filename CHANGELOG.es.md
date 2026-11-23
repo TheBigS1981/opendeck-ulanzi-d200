@@ -19,6 +19,9 @@
 - **Archivo de inactividad**: cada pulsación de tecla y cada evento de ruleta
   actualiza `d200x-last-input` en la carpeta temporal, así que otros programas
   pueden saber cuánto tiempo lleva el deck sin tocarse.
+- **Borde de las teclas**: un borde negro de 4, 8 o 12 píxeles alrededor de cada
+  tecla, en los ajustes de la acción Wide screen, para que las imágenes no
+  lleguen hasta el borde de la pantalla.
 - **D200X probada en Windows 11**: teclas, ruletas, botones laterales y la
   pantalla ancha.
 

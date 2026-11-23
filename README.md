@@ -274,6 +274,13 @@ plugin can use this to show a dial's value while it's turned, or a short list.
 tell how long the deck has been left alone, for example to switch back to the
 main page.
 
+### Key border
+
+Pictures that fill their whole square run right into the edge of the key's
+screen. The **Wide screen** action's settings also have **Key border** (none,
+thin, medium, wide): a black border of 0, 4, 8 or 12 pixels around every key's
+picture, the wide screen excepted. It's global like the mode.
+
 ### Brightness
 
 OpenDeck's brightness setting and the **Device Brightness** action are passed straight to the deck.
